@@ -1,0 +1,166 @@
+---
+title: "Cardiovascular Disease Prediction"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyverse)
+library(factoextra)
+```
+
+## Data reading:
+
+The data required is readily available in the open UCI Machine learning repository https://archive.ics.uci.edu/ml/datasets/heart+disease. But it is split up based on location and is in a custom format with the extension `.data`. We can read it as table and merge it. The column names are available in the file `heart-disease.names`.
+
+### Read the data
+
+```{r}
+# Read all processed data
+ 
+cleaveland_data <- read.table("./data/processed.cleveland.data", fileEncoding = "UTF-8", sep = ",")
+hungarian_data <- read.table("./data/processed.hungarian.data", fileEncoding = "UTF-8", sep = ",")
+switzerland_data <- read.table("./data/processed.switzerland.data", fileEncoding = "UTF-8", sep = ",")
+va_data <- read.table("./data/processed.va.data", fileEncoding = "UTF-8", sep = ",")
+```
+
+### Print the dimensions of read data:
+
+```{r}
+print("Dimensions of individual datasets :")
+print(dim(cleaveland_data))
+print(dim(hungarian_data))
+print(dim(switzerland_data))
+print(dim(va_data))
+```
+
+### Concatinate the data and assign column names:
+```{r}
+# Concat all the datasets
+tmp1 <- rbind(cleaveland_data, hungarian_data)
+tmp2 <- rbind(switzerland_data, va_data)
+heart_data <- rbind(tmp1, tmp2)
+
+# Column names from heart-disease.names file
+colnames(heart_data) <- c("age","sex","cp","trestbps","chol","fbs","restecg","thalach","exang","oldpeak","slope","ca","thal","goal")
+summary(heart_data)
+
+print("Dimensions of combined data :")
+print(dim(heart_data))
+```
+
+### Remove all unnecessary columns with ? or :
+
+```{r}
+heart_data [heart_data == "?"] <- NA
+heart_data <- drop_na(heart_data)
+
+# After removal of all the data we are down to 299 rows
+dim(heart_data)
+```
+
+
+### See if the data types are okay 
+```{r}
+# print the data types
+print(sapply(heart_data, class))
+```
+
+### Fix the data types
+```{r}
+# Data types are wrong, should update it based on data available from heart-disease.names
+# Age should be a number
+heart_data$age <- as.numeric(heart_data$age) 
+
+# Sex should be a factor (1 = male; 0 = female)
+heart_data$sex <- as.factor(heart_data$sex)
+
+# cp - chest pain should be a factor
+# Value 1: typical angina
+# Value 2: atypical angina
+# Value 3: non-anginal pain
+# Value 4: asymptomatic
+heart_data$cp <- as.factor(heart_data$cp)
+
+# trestbps - resting blood pressure
+heart_data$trestbps <- as.numeric(heart_data$trestbps)
+
+# chol - serum cholestoral in mg/dl
+heart_data$chol <- as.numeric(heart_data$chol)
+
+# fbs - If fasting blood sugar > 120 mg/dl,   (1 = true; 0 = false)
+heart_data$fbs <- as.factor(heart_data$fbs)
+
+# restecg - resting electrocardiographic results
+# Value 0: normal
+# Value 1: having ST-T wave abnormality (T wave inversions and/or ST elevation or depression of > 0.05 mV)
+# Value 2: showing probable or definite left ventricular hypertrophy by Estes' criteria
+heart_data$restecg <- as.factor(heart_data$restecg)
+
+# thalach: maximum heart rate achieved
+heart_data$thalach <- as.numeric(heart_data$thalach)
+
+# exang: exercise induced angina (1 = yes; 0 = no)
+heart_data$exang <- as.factor(heart_data$exang)
+
+# oldpeak = ST depression induced by exercise relative to rest
+heart_data$oldpeak <- as.numeric(heart_data$oldpeak)
+
+# slope: the slope of the peak exercise ST segment
+# Value 1: upsloping
+# Value 2: flat
+# Value 3: downsloping
+heart_data$slope <- as.factor(heart_data$slope)
+
+# ca: number of major vessels (0-3) colored by flourosopy
+heart_data$ca <- as.numeric(heart_data$ca)
+
+# thal: 3 = normal; 6 = fixed defect; 7 = reversable defect
+heart_data$thal <- as.factor(as.integer(heart_data$thal))
+
+# goal: It distinguish presence (values 1,2,3,4) from absence (value 0)
+heart_data$goal <- as.factor(heart_data$goal)
+
+print("After manual updates of datatype")
+# print the data types
+print(sapply(heart_data, class))
+summary(heart_data)
+```
+
+### Write the data as csv to local machine:
+```{r}
+write.csv(heart_data,"./data/heart_data.csv", row.names = FALSE)
+```
+
+## Data exploration:
+
+Plot a graph on likeliness of people having a cardio-vascular problems with 0 as abscense and (1,2,3,4) having problems.
+
+```{r}
+ggplot(heart_data, aes(x=as.factor(goal), fill=as.factor(goal) )) +
+  geom_bar() +
+  xlab("Likeliness of having problems") +
+  ggtitle("Graph of likeliness of having cardio vascular problems problems") +
+  coord_flip()
+```
+
+Plot a graph on likeliness of people having a cardio-vascular problems with 0 as abscense and 1 as having problems.
+
+```{r}
+tmp_data <- cbind(heart_data$goal, ifelse(heart_data$goal!= 0, 1, 0))
+
+ggplot(heart_data, aes(x=as.factor(tmp_data[, 2]), fill=as.factor(tmp_data[, 2]) )) +
+  geom_bar() +
+  xlab("Likeliness of having problems") +
+  ggtitle("Graph of people having and not having problems") +
+  coord_flip()
+```
+
+Apply kmeans to see how the clusters are formed
+```{r}
+kmeans.res <- kmeans(heart_data, 4)
+plot(heart_data, col=kmeans.res$cluster)
+```
+
+
