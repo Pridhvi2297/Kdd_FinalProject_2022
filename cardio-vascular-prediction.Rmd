@@ -5,9 +5,17 @@ output: pdf_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+# update.packages()
+# install.packages("caret")
+
 library(dplyr)
 library(tidyverse)
 library(factoextra)
+library(caret)
+library(caTools)
+
+
+set.seed(2022)
 ```
 
 ## Data reading:
@@ -56,6 +64,9 @@ print(dim(heart_data))
 heart_data [heart_data == "?"] <- NA
 heart_data <- drop_na(heart_data)
 
+# Check if we still have any na values
+apply(heart_data,2, function(x) any(is.na(x)))
+
 # After removal of all the data we are down to 299 rows
 dim(heart_data)
 ```
@@ -68,6 +79,7 @@ print(sapply(heart_data, class))
 ```
 
 ### Fix the data types
+
 ```{r}
 # Data types are wrong, should update it based on data available from heart-disease.names
 # Age should be a number
@@ -135,7 +147,23 @@ write.csv(heart_data,"./data/heart_data.csv", row.names = FALSE)
 
 ## Data exploration:
 
-Plot a graph on likeliness of people having a cardio-vascular problems with 0 as abscense and (1,2,3,4) having problems.
+### Plot a graph on likeliness of people having a cardio-vascular problems with 0 as abscense and (1,2,3,4) having problems.
+
+```{r}
+ggplot(heart_data, aes(x=as.factor(goal), fill=as.factor(goal) )) +
+  geom_bar() +
+  xlab("Likeliness of having problems") +
+  ggtitle("Graph of likeliness of having cardio vascular problems problems") +
+  coord_flip()
+
+heart_data %>% group_by(age, goal) %>% summarise(count = n()) %>%
+  ggplot() + geom_bar(aes(age, count,   fill = as.factor(goal)), stat = "Identity") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, size = 10)) + 
+  ylab("count") + xlab("age") + labs(fill = "goal")
+```
+
+### Plot a graph on likeliness of people having a cardio-vascular problems with 0 as abscense and (1,2,3,4) having problems.
 
 ```{r}
 ggplot(heart_data, aes(x=as.factor(goal), fill=as.factor(goal) )) +
@@ -145,22 +173,250 @@ ggplot(heart_data, aes(x=as.factor(goal), fill=as.factor(goal) )) +
   coord_flip()
 ```
 
-Plot a graph on likeliness of people having a cardio-vascular problems with 0 as abscense and 1 as having problems.
+### Graph of likeliness of having cardio vascular problems problems for given age
 
 ```{r}
-tmp_data <- cbind(heart_data$goal, ifelse(heart_data$goal!= 0, 1, 0))
+grouped_data <- group_by(heart_data, age, goal)
+heart_data_summary <- summarise(grouped_data, count = n())
+ggplot(heart_data_summary) + 
+geom_bar(aes(age, count, fill = goal), stat = "Identity") +
+ylab("Count of people having heart disease") +
+ggtitle("Graph of likeliness of having cardio vascular problems problems for given age") +
+xlab("Age")
+```
 
-ggplot(heart_data, aes(x=as.factor(tmp_data[, 2]), fill=as.factor(tmp_data[, 2]) )) +
+### Plot a graph on likeliness of people having a cardio-vascular problems with 0 as abscense and 1 as having problems.
+
+```{r}
+likelyness <- as.factor(ifelse(heart_data$goal == 0,0,1))
+
+ggplot(heart_data, aes(x=likelyness, fill=likelyness)) +
   geom_bar() +
   xlab("Likeliness of having problems") +
   ggtitle("Graph of people having and not having problems") +
   coord_flip()
 ```
 
-Apply kmeans to see how the clusters are formed
+### Graph of people having and not having problems for given age
+
 ```{r}
-kmeans.res <- kmeans(heart_data, 4)
-plot(heart_data, col=kmeans.res$cluster)
+tmp_heart_data <- heart_data
+tmp_heart_data$goal <- as.factor(ifelse(heart_data$goal == 0,0,1))
+
+
+grouped_data <- group_by(tmp_heart_data, age, goal)
+heart_data_summary <- summarise(grouped_data, count = n())
+
+
+ggplot(heart_data_summary) + 
+geom_bar(aes(age, count, fill = goal), stat = "Identity") +
+ylab("Count of people having heart disease") +
+ggtitle("Graph of likeliness of having cardio vascular problems problems for given age") +
+xlab("Age")
+```
+
+### likeliness of having cardio vascular problems problems for given gender
+
+```{r}
+grouped_data <- group_by(heart_data, sex, goal)
+heart_data_summary <- summarise(grouped_data, count = n())
+
+ggplot(heart_data_summary) + 
+geom_bar(aes(goal, count, fill = sex), stat = "Identity") +
+ylab("Count of people having heart disease") +
+ggtitle("likeliness of having cardio vascular problems problems for given gender") +
+xlab("Likeliness of having a disease")
+```
+
+### Graph of people having and not having problems for given gender
+
+```{r}
+grouped_data <- group_by(tmp_heart_data, sex, goal)
+heart_data_summary <- summarise(grouped_data, count = n())
+
+ggplot(heart_data_summary) + 
+geom_bar(aes(goal, count, fill = sex), stat = "Identity") +
+ylab("Count of people having heart disease") +
+ggtitle("Graph of people having and not having problems for given gender") +
+xlab("Likeliness of having a disease")
+```
+
+## Feature selection:
+
+#### Rank the variables based on their importance using Learning Vector Quantization
+
+We can use the caret library where we can build LVQ model and use varImp to see the variable importance. Here we see that the `thal` is the most important where as the `fbs`, `chol`, `restecg` has the least values.
+
+```{r}
+
+lvq.model <- train(goal ~ .,
+                  data=heart_data, 
+                  method="lvq", 
+                  preProcess="scale", 
+                  trControl=trainControl(method="repeatedcv", number=10, repeats=3))
+
+lvq.res <- varImp(lvq.model, scale=FALSE)
+
+plot(lvq.res)
+```
+
+### Use Recursive Feature Elimination to try and eliminate some noise
+
+We can use the RFE to automatically eliminate features that are the least important. As we can see fbs, chol, restecg values whose varImp is the least have been removed.
+
+```{r}
+rfe.res <- rfe(heart_data[,1:13], 
+               heart_data[,14], 
+               sizes=c(1:13), 
+               rfeControl=rfeControl(functions=rfFuncs, method="cv", number=10))
+
+rfe.predictors <- predictors(rfe.res)
+
+plot(rfe.res, type=c("g", "o"))
+
+# update the heart data based on the predictors
+heart_data <- subset(heart_data, select = append(rfe.predictors, 'goal' ,after=1))
+
+str(heart_data)
+```
+
+## Prediction:
+
+We will be using various classification algorithms to help predict cardio vascular diseases. Compare accuracy and come to conclusion:
+
+* K Nearest Neighbours
+* Support Vector Machines
+* Random Forest
+* Gradient Boosting Machines
+* Linear Discriminant Analysis
+* Quadrant Discriminant Analysis
+
+We can use the caret library which provides easy access to all the above algorithms
+
+
+Let us use a simplify the goal as either 0 (absense) or 1 (presence)
+
+```{r}
+heart_data$goal <- as.factor(ifelse(heart_data$goal == 0,0,1))
+
+str(heart_data)
 ```
 
 
+First let us divide the data into two different sets:
+
+```{r}
+set.seed(2022)
+
+# Divide the dataset 5:5
+split <- sample.split(heart_data, SplitRatio = 0.7)
+
+training_data <- subset(heart_data, split == "TRUE")
+dim(training_data)
+
+validation_data <- subset(heart_data, split == "FALSE")
+dim(validation_data)
+```
+
+### K Nearest Neighbours
+
+```{r}
+knn.model <- train(goal ~ ., 
+                data = training_data, 
+                method = "knn", 
+                preProcess = c("center","scale"),
+                trControl = trainControl(method = "cv", verboseIter = FALSE, number = 2), 
+                tuneGrid = expand.grid(k = 1:20))
+
+knn.res <- predict(knn.model, newdata = validation_data )
+knn.confusion_matrix <- confusionMatrix(knn.res, validation_data$goal )
+
+knn.confusion_matrix 
+```
+
+
+### Support Vector Machines
+
+```{r}
+svm.model <- train(goal ~ .,
+                 data = training_data,
+                 method = "svmLinear", 
+                 preProcess = c("center","scale"),
+                 tuneGrid = expand.grid(C = c(0.01, 0.1, 1, 10, 20)), 
+                 trControl = trainControl(method = "cv", verboseIter = FALSE, number = 2))
+
+svm.res <- predict(svm.model, 
+                   newdata = validation_data)
+
+svm.confusion_matrix <- confusionMatrix(svm.res, validation_data$goal)
+
+svm.confusion_matrix
+```
+
+### Random Forest
+
+```{r}
+rf.model <- train(goal ~ ., 
+                method = "rf", 
+                data = training_data, 
+                ntree = 20, 
+                trControl = trainControl(method = "cv", number = 2, verboseIter = FALSE),
+                tuneGrid = data.frame(mtry = c(1:10)))
+
+rf.res <- predict(rf.model, newdata = validation_data)
+
+rf.confusion_matrix <- confusionMatrix(rf.res, validation_data$goal)
+
+rf.confusion_matrix
+```
+
+### Gradient Boosting Machines
+
+```{r}
+
+gbm.model <- train(goal ~ ., 
+                 method = "gbm", 
+                 verbose = FALSE,
+                 data = training_data,  
+                 trControl = trainControl(method = "cv", number = 2, verboseIter = FALSE), 
+                 tuneGrid = expand.grid(interaction.depth = seq(5, 30, 5),
+                        n.trees = seq(5, 50, 5),
+                        shrinkage = c(0.1:0.5),
+                        n.minobsinnode = 10))
+
+gbm.res <- predict(gbm.model, newdata = validation_data)
+
+gbm.confusion_matrix <- confusionMatrix(gbm.res, validation_data$goal)
+
+gbm.confusion_matrix
+```
+
+### Linear Discriminant Analysis
+
+```{r}
+lda.model <- train(goal ~ ., 
+                   method = "lda", 
+                   data = training_data)
+
+lda.res <- predict(lda.model, validation_data)
+lda.confusion_matrix <- confusionMatrix(lda.res, validation_data$goal)
+
+lda.confusion_matrix
+```
+
+### Quadrant Discriminant Analysis
+
+```{r}
+qda.model <- train(goal ~ ., 
+                   method = "qda", 
+                   data = training_data)
+
+qda.res <- predict(qda.model, validation_data)
+qda.confusion_matrix <- confusionMatrix(qda.res, validation_data$goal)
+
+qda.confusion_matrix
+```
+
+## Conclusion
+
+Initially the results were always less than 80%, but as we kept on cleaning up of data, did feature elimination, performed cross validation and did some hyper-parameter tuning with tuneGrid the results got better with some models even getting more than 90% accuracy. 
